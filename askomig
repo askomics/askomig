@@ -1,0 +1,53 @@
+import os
+import shutil
+import glob
+import argparse
+from libaskomig.SparqlQuery import SparqlQuery
+from libaskomig.SqlQuery import SqlQuery
+from libaskomig.DirectoryManager import DirectoryManager
+
+class Askomig():
+
+    def __init__(self):
+
+        parser = argparse.ArgumentParser(description='Migrate database of Askomics for version 18.10')
+
+        parser.add_argument('-o', '--old-directory', type=str, help='Old data directory', default='/tmp/askomics')
+        parser.add_argument('-n', '--new-directory', type=str, help='New data directory', default='/tmp/askomics')
+        parser.add_argument('-e', '--endpoint', type=str, help='Triplestore endpoint', default='http://localhost:8890/sparql')
+        parser.add_argument('-g', '--user-graph', type=str, help='User graph in the triplestore', default='urn:sparql:askomics:users')
+        parser.add_argument('-p', '--prefix', type=str, help='AskOmics prefix', default='http://www.semanticweb.org/user/ontologies/2018/1#')
+        parser.add_argument('-d', '--database-path', type=str, help='Path of the NEW database file', default='/tmp/askomics/database.db')
+
+        self.args = parser.parse_args()
+
+
+    def main(self):
+
+        directory_manager = DirectoryManager(self.args.new_directory, self.args.old_directory)
+        sparql_query_builder = SparqlQuery(self.args.endpoint, self.args.user_graph, self.args.prefix)
+        sql_query_builder = SqlQuery(self.args.database_path, self.args.old_directory, self.args.new_directory)
+
+        # First, get all user infos present in the user_graph in endpoint
+        rdf_users = sparql_query_builder.get_rdf_users()
+
+        # create the new database
+        directory_manager.create_new_dir()
+        sql_query_builder.create_all_tables()
+
+        for user in rdf_users:
+            # Add user in sql database
+            user_id = sql_query_builder.add_user(user)
+            # Move his directories
+            directory_manager.move_user_uploads(user['username'])
+            directory_manager.move_user_results(user['username'])
+            directory_manager.move_user_rdf(user['username'])
+            # Move his jobs
+            sql_query_builder.move_job_database(user['username'], user_id)
+            # Move his endpoints
+            sql_query_builder.move_endpoint_manager(user['username'])
+
+
+if __name__ == '__main__':
+
+    Askomig().main()
